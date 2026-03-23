@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
+
+<style>
+body{
+font-family:Arial;
+background:#f4f7f6;
+text-align:center;
+}
+
+.container{
+width:750px;
+margin:auto;
+margin-top:60px;
+background:white;
+padding:20px;
+border-radius:10px;
+box-shadow:0 4px 8px rgba(0,0,0,0.1);
+}
+</style>
+
+</head>
+
+<body>
+
+<div class="container">
+
+<h2>Dynamic Chart</h2>
+
+<canvas id="chart"></canvas>
+
+</div>
+
+<script>
+
+const chartData = {{ chart_data | safe }};
+const chartType = "{{ chart_type }}";
+
+</script>
+
+{% if chart_type == "donut" %}
+<script src="/static/js/donut_chart.js"></script>
+{% elif chart_type == "bar_v" %}
+<script src="/static/js/bar_chart_vertical.js"></script>
+{% elif chart_type == "bar_h" %}
+<script src="/static/js/bar_chart_horizontal.js"></script>
+{% elif chart_type == "line" %}
+<script src="/static/js/line_chart.js"></script>
+{% endif %}
+
+</body>
+</html>

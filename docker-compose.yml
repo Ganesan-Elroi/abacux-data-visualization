@@ -1,0 +1,11 @@
+version: "3.9"
+
+services:
+  abacux-api:
+    build: .
+    container_name: abacux_api
+    ports:
+      - "5012:5012"
+    restart: always
+    env_file:
+      - .env

@@ -38,7 +38,7 @@ jobs:
             docker ps
 
             echo "Checking if port 80 is in use..."
-            sudo lsof -i :80
+             lsof -i :80 || true
 
   deploy:
     runs-on: ubuntu-latest

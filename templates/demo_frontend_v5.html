@@ -9,7 +9,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     
     <!-- ECharts -->
-    <script src="https://cdn.jsdelivr.net/npm/echarts@6.0.0/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     
     <style>
         body {
@@ -107,7 +107,11 @@
 
     <!-- jQuery -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    
+   <script type="module">
+    import { renderChart } from '/static/js/chart-engine.js';
+    window.renderChart = renderChart;
+</script>
+
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/bootstrap.bundle.min.js"></script>
 
@@ -325,7 +329,6 @@
             
             // Call API
             $.ajax({
-                // url: 'http://localhost:5012/api/analyze-charts',
                 url: 'https://eudemonistically-unexpellable-perla.ngrok-free.dev/api/analyze-charts',
                 method: 'POST',
                 contentType: 'application/json',
@@ -366,12 +369,26 @@
         // ========================================================================
         
         function transformToChartData(labelKey, valueKeys, fullDbResults) {
+
+            // 🔥 FIX: handle no label_key (time-series)
+            if (!labelKey) {
+                const labels = fullDbResults.map((row, i) => i + 1);
+
+                const datasets = valueKeys.map(vk => ({
+                    label: formatColumnName(vk),
+                    values: fullDbResults.map(row => parseFloat(row[vk]) || 0)
+                }));
+
+                return { labels, datasets };
+            }
+
+            // existing logic
             const labels = [];
             const aggregated = {};
-            
+
             fullDbResults.forEach(row => {
                 const label = String(row[labelKey] || 'Unknown');
-                
+
                 if (!aggregated[label]) {
                     aggregated[label] = {};
                     valueKeys.forEach(vk => {
@@ -379,24 +396,19 @@
                     });
                     labels.push(label);
                 }
-                
+
                 valueKeys.forEach(vk => {
                     const value = parseFloat(row[vk]) || 0;
                     aggregated[label][vk] += value;
                 });
             });
-            
-            const datasets = valueKeys.map(vk => {
-                return {
-                    label: formatColumnName(vk),
-                    values: labels.map(label => aggregated[label][vk])
-                };
-            });
-            
-            return {
-                labels: labels,
-                datasets: datasets
-            };
+
+            const datasets = valueKeys.map(vk => ({
+                label: formatColumnName(vk),
+                values: labels.map(label => aggregated[label][vk])
+            }));
+
+            return { labels, datasets };
         }
 
         // ========================================================================
@@ -413,6 +425,7 @@
             
             chartConfigs.forEach((config, index) => {
                 const { label_key, value_keys, chart_type } = config;
+                console.log("Incoming chart type:", chart_type);
                 
                 console.log(`Chart ${index + 1}:`, config);
                 
@@ -440,7 +453,7 @@
                 
                 // Small delay to ensure DOM is ready
                 setTimeout(() => {
-                    renderChartByType(chart_type, `chart-${index}`, chartData);
+                    renderChart(chart_type, `chart-${index}`, chartData);
                 }, 100 * (index + 1));
             });
         }
@@ -449,43 +462,7 @@
         // CHART RENDERING ROUTER
         // ========================================================================
         
-        function renderChartByType(chartType, containerId, chartData) {
-            console.log(`Rendering ${chartType} in ${containerId}`);
-            
-            switch(chartType) {
-                case 'bar_v':
-                    renderBarVerticalChart(containerId, chartData);
-                    break;
-                case 'bar_h':
-                    renderBarHorizontalChart(containerId, chartData);
-                    break;
-                case 'donut':
-                    renderDonutChart(containerId, chartData);
-                    break;
-                case 'line':
-                    renderLineChart(containerId, chartData);
-                    break;
-                case 'candlestick':
-                    renderCandlestickChart(containerId, chartData);
-                    break;
-                case 'bar_axis_break':
-                    renderBarChartAxisBreak(containerId, chartData);
-                    break;
-                case 'bar_clickable':
-                    renderBarChartClickable(containerId, chartData);
-                    break;
-                case 'area':
-                    renderAreaChart(containerId, chartData);
-                    break;
-                case 'scatter':
-                    renderScatterChart(containerId, chartData);
-                    break;
-                default:
-                    console.warn(`Unknown chart type: ${chartType}, using bar_v`);
-                    renderBarVerticalChart(containerId, chartData);
-            }
-        }
-
+    
         // ========================================================================
         // CHART FUNCTIONS (Your existing chart renderers)
         // ========================================================================
@@ -805,6 +782,141 @@
             });
         }
 
+        // large_area_chart.js
+        function renderLargeAreaChart(containerId, chartData) {
+            let myChart = echarts.init(document.getElementById(containerId));
+            myChart.setOption({
+                tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+                grid: { left: '3%', right: '4%', bottom: '10%', top: '5%', containLabel: true },
+                xAxis: {
+                    type: 'category',
+                    boundaryGap: false,
+                    data: chartData.labels
+                },
+                yAxis: { type: 'value' },
+                series: chartData.datasets.map(ds => ({
+                    name: ds.label,
+                    type: 'line',
+                    smooth: true,
+                    showSymbol: false,
+                    lineStyle: { width: 0 },
+                    areaStyle: {
+                        opacity: 0.8,
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: 'rgba(255, 99, 132, 0.8)' },
+                            { offset: 0.5, color: 'rgba(255, 159, 64, 0.5)' },
+                            { offset: 1, color: 'rgba(255, 205, 86, 0.2)' }
+                        ])
+                    },
+                    data: ds.values
+                }))
+            });
+        }
+
+        // rainfall_evaporation_chart.js
+        function renderRainfallEvaporationChart(containerId, chartData) {
+            let myChart = echarts.init(document.getElementById(containerId));
+            let data1 = chartData.datasets[0] ? chartData.datasets[0].values : [];
+            let data2 = chartData.datasets[1] ? chartData.datasets[1].values : [];
+            
+            myChart.setOption({
+                tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+                legend: { data: chartData.datasets.map(ds => ds.label), bottom: '0%' },
+                grid: { left: '3%', right: '4%', bottom: '12%', top: '15%', containLabel: true },
+                xAxis: { type: 'category', data: chartData.labels },
+                yAxis: [
+                    { type: 'value', name: chartData.datasets[0] ? chartData.datasets[0].label : '', position: 'left' },
+                    { type: 'value', name: chartData.datasets[1] ? chartData.datasets[1].label : '', position: 'right' }
+                ],
+                series: [
+                    {
+                        name: chartData.datasets[1] ? chartData.datasets[1].label : 'Line',
+                        type: 'line',
+                        yAxisIndex: 1,
+                        data: data2,
+                        smooth: true,
+                        lineStyle: { color: '#5470C6', width: 2 }
+                    },
+                    {
+                        name: chartData.datasets[0] ? chartData.datasets[0].label : 'Bar',
+                        type: 'bar',
+                        data: data1,
+                        itemStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: '#7FFF00' },
+                                { offset: 0.5, color: '#FFD700' },
+                                { offset: 1, color: '#FF4500' }
+                            ])
+                        },
+                        barMaxWidth: 40
+                    }
+                ]
+            });
+        }
+
+        // beijing_aqi_chart.js
+        function renderBeijingAQIChart(containerId, chartData) {
+            let myChart = echarts.init(document.getElementById(containerId));
+            let colorScheme = ['#EE6666', '#FAC858', '#73C0DE', '#5470C6', '#91CC75', '#EA7CCC'];
+            
+            myChart.setOption({
+                tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+                legend: { data: chartData.datasets.map(ds => ds.label), bottom: '0%', textStyle: { fontSize: 10 } },
+                grid: { left: '3%', right: '4%', bottom: '15%', top: '15%', containLabel: true },
+                xAxis: { type: 'category', data: chartData.labels, axisLabel: { rotate: 45, fontSize: 9 } },
+                yAxis: { type: 'value' },
+                series: chartData.datasets.map((ds, index) => ({
+                    name: ds.label,
+                    type: index % 2 === 0 ? 'bar' : 'line',
+                    data: ds.values,
+                    barMaxWidth: 15,
+                    smooth: true,
+                    showSymbol: false,
+                    itemStyle: { color: colorScheme[index % colorScheme.length], opacity: 0.7 },
+                    lineStyle: { width: 2, color: colorScheme[index % colorScheme.length] }
+                }))
+            });
+        }
+
+        // confidence_band_chart.js
+        function renderConfidenceBandChart(containerId, chartData) {
+            let myChart = echarts.init(document.getElementById(containerId));
+            let mainData = chartData.datasets[0] ? chartData.datasets[0].values : [];
+            let upperBound = mainData.map(val => val * 1.1);
+            let lowerBound = mainData.map(val => val * 0.9);
+            
+            myChart.setOption({
+                tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+                grid: { left: '3%', right: '4%', bottom: '10%', top: '15%', containLabel: true },
+                xAxis: { type: 'category', boundaryGap: false, data: chartData.labels },
+                yAxis: { type: 'value' },
+                series: [
+                    {
+                        type: 'line',
+                        data: lowerBound,
+                        lineStyle: { opacity: 0 },
+                        stack: 'confidence-band',
+                        symbol: 'none'
+                    },
+                    {
+                        type: 'line',
+                        data: upperBound.map((val, idx) => val - lowerBound[idx]),
+                        lineStyle: { opacity: 0 },
+                        areaStyle: { color: 'rgba(200, 200, 200, 0.2)' },
+                        stack: 'confidence-band',
+                        symbol: 'none'
+                    },
+                    {
+                        type: 'line',
+                        data: mainData,
+                        smooth: true,
+                        showSymbol: false,
+                        lineStyle: { width: 2, color: '#333' }
+                    }
+                ]
+            });
+        }
+
         // ========================================================================
         // UTILITIES
         // ========================================================================
@@ -825,14 +937,18 @@
                 'bar_axis_break': 'Bar with Axis Break',
                 'bar_clickable': 'Interactive Bar',
                 'area': 'Stacked Area',
-                'scatter': 'Scatter Plot'
+                'large_area': 'Large Area Trend',
+                'scatter': 'Scatter Plot',
+                'rainfall_evaporation': 'Dual-Axis Combo',
+                'beijing_aqi': 'Multi-Metric Mixed',
+                'confidence_band': 'Confidence Band'
             };
             
             const valueLabel = config.value_keys.map(formatColumnName).join(' & ');
             const labelFormatted = formatColumnName(config.label_key);
             const typeName = typeNames[config.chart_type] || 'Chart';
             
-            return `${valueLabel} by ${labelFormatted} (${typeName})`;
+            return `${valueLabel} by ${labelFormatted}`;
         }
 
         // ========================================================================

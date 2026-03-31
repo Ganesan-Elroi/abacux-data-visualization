@@ -1,3 +1,4 @@
+# abacux_api.py
 import os
 import json
 import random
@@ -230,184 +231,12 @@ def validate_chart_config(config, sample_row, column_types):
 
 
 # ========================================================================
-# USER SUGGESTION HANDLING
-# ========================================================================
-
-def clean_column_name(col_name):
-    """Remove 'table_' prefix from column names if present"""
-    if col_name.startswith('table_'):
-        return col_name[6:]  # Remove 'table_' prefix
-    return col_name
-
-
-def find_best_column_match(suggested_col, available_cols, column_types):
-    """Find the best matching column from available columns"""
-    cleaned_suggested = clean_column_name(suggested_col)
-    
-    # Direct match (after cleaning)
-    if cleaned_suggested in available_cols:
-        return cleaned_suggested, None
-    
-    # Partial match
-    for col in available_cols:
-        if cleaned_suggested.lower() in col.lower() or col.lower() in cleaned_suggested.lower():
-            return col, f"Used '{col}' (closest match to '{suggested_col}')"
-    
-    return None, None
-
-
-def validate_user_suggestion(user_suggestion, db_results):
-    """
-    Validate and process user suggestions.
-    Returns list of chart configs with messages explaining any changes.
-    """
-    if not user_suggestion or not isinstance(user_suggestion, dict):
-        return None
-    
-    suggested_charts = user_suggestion.get('chart', [])
-    suggested_columns = user_suggestion.get('columns', [])
-    
-    if not suggested_charts or not suggested_columns:
-        return None
-    
-    # Ensure both are lists
-    if not isinstance(suggested_charts, list):
-        suggested_charts = [suggested_charts]
-    if not isinstance(suggested_columns, list):
-        suggested_columns = [suggested_columns]
-    
-    sample_data = get_smart_sample(db_results, sample_size=8)
-    column_types = detect_column_types(db_results)
-    available_cols = list(sample_data[0].keys())
-    
-    numeric_cols = [col for col, ctype in column_types.items() if ctype == "numeric"]
-    category_cols = [col for col, ctype in column_types.items() if ctype == "category"]
-    date_cols = [col for col, ctype in column_types.items() if ctype == "date"]
-    
-    chart_configs = []
-    
-    # Process each chart type
-    for chart_type in suggested_charts:
-        normalized_chart = normalize_chart_type(chart_type)
-        chart_message = None
-        selected_columns = []
-        label_key = ""
-        
-        # Map suggested columns to actual columns
-        mapped_columns = []
-        for suggested_col in suggested_columns:
-            matched_col, message = find_best_column_match(suggested_col, available_cols, column_types)
-            if matched_col:
-                mapped_columns.append((matched_col, message))
-        
-        # Determine what type of columns this chart needs
-        chart_needs_numeric = normalized_chart in ['bar_v', 'bar_h', 'line', 'area', 'large_area', 
-                                                     'scatter', 'rainfall_evaporation', 'multiple_axes', 
-                                                     'confidence_band', 'donut']
-        chart_needs_category = normalized_chart in ['bar_v', 'bar_h', 'donut', 'line', 'area']
-        
-        # Separate mapped columns by type
-        mapped_numeric = [(col, msg) for col, msg in mapped_columns if column_types.get(col) == "numeric"]
-        mapped_category = [(col, msg) for col, msg in mapped_columns if column_types.get(col) == "category"]
-        mapped_date = [(col, msg) for col, msg in mapped_columns if column_types.get(col) == "date"]
-        
-        # Build chart configuration based on chart type requirements
-        if chart_needs_numeric and chart_needs_category:
-            # Charts like bar_v, bar_h, donut need both category (label) and numeric (values)
-            
-            # Try to use mapped category columns for label
-            if mapped_category:
-                label_key = mapped_category[0][0]
-                if mapped_category[0][1]:
-                    chart_message = mapped_category[0][1]
-            elif mapped_date:
-                # Use date as label if no category
-                label_key = mapped_date[0][0]
-                if mapped_date[0][1]:
-                    chart_message = mapped_date[0][1]
-            elif category_cols:
-                # Fallback to available category
-                label_key = category_cols[0]
-                chart_message = f"Used '{label_key}' as label (no suitable category column in your selection)"
-            
-            # Use mapped numeric columns for values
-            if mapped_numeric:
-                selected_columns = [col for col, msg in mapped_numeric]
-                if not chart_message and any(msg for col, msg in mapped_numeric):
-                    chart_message = "; ".join([msg for col, msg in mapped_numeric if msg])
-            elif numeric_cols:
-                # Fallback to available numeric
-                selected_columns = [numeric_cols[0]]
-                chart_message = f"Used '{numeric_cols[0]}' (no suitable numeric column in your selection)"
-        
-        elif chart_needs_numeric:
-            # Charts that only need numeric values (like scatter needs 2+ numeric)
-            if mapped_numeric:
-                selected_columns = [col for col, msg in mapped_numeric]
-                if any(msg for col, msg in mapped_numeric):
-                    chart_message = "; ".join([msg for col, msg in mapped_numeric if msg])
-            elif numeric_cols:
-                # Fallback
-                selected_columns = numeric_cols[:2] if normalized_chart == 'scatter' else [numeric_cols[0]]
-                chart_message = f"Used {', '.join(selected_columns)} (no suitable numeric columns in your selection)"
-            
-            # For scatter, ensure we have at least 2 numeric columns
-            if normalized_chart == 'scatter' and len(selected_columns) < 2:
-                if len(numeric_cols) >= 2:
-                    selected_columns = numeric_cols[:2]
-                    chart_message = f"Scatter chart requires 2 numeric columns. Used '{selected_columns[0]}' and '{selected_columns[1]}'"
-        
-        # Skip if we couldn't find appropriate columns
-        if not selected_columns and not label_key:
-            chart_message = f"Could not find suitable columns for {chart_type} chart from your selection"
-            continue
-        
-        # Create chart config
-        config = {
-            "label_key": label_key,
-            "value_keys": selected_columns if selected_columns else [],
-            "chart_type": normalized_chart
-        }
-        
-        # Add message if there were any substitutions or issues
-        if chart_message:
-            config["chart_message"] = chart_message
-        
-        # Validate the config
-        is_valid, validation_msg = validate_chart_config(config, sample_data[0], column_types)
-        
-        if is_valid:
-            chart_configs.append(config)
-        else:
-            # Try to fix common issues
-            if "not numeric" in validation_msg and numeric_cols:
-                config["value_keys"] = [numeric_cols[0]]
-                config["chart_message"] = f"Selected column was not numeric. Used '{numeric_cols[0]}' instead"
-                chart_configs.append(config)
-            elif "too many unique values" in validation_msg and category_cols:
-                config["label_key"] = category_cols[0]
-                config["chart_message"] = f"Selected label had too many unique values. Used '{category_cols[0]}' instead"
-                is_valid_retry, _ = validate_chart_config(config, sample_data[0], column_types)
-                if is_valid_retry:
-                    chart_configs.append(config)
-    
-    return chart_configs if chart_configs else None
-
-
-# ========================================================================
 # LLM CHART ANALYSIS
 # ========================================================================
 
-def analyze_data_for_charts(db_results, user_prompt="", user_suggestion=None):
+def analyze_data_for_charts(db_results, user_prompt=""):
     if not db_results:
         return []
-    
-    # If user provided suggestions, try to use them first
-    if user_suggestion:
-        user_charts = validate_user_suggestion(user_suggestion, db_results)
-        if user_charts:
-            print(f"[INFO] Using user-suggested charts: {len(user_charts)} charts")
-            return user_charts
 
     sample_data = get_smart_sample(db_results, sample_size=8)
     column_types = detect_column_types(db_results)
@@ -640,7 +469,6 @@ def analyze_charts():
         
         db_results = data.get("db_result", [])
         user_prompt = data.get("user_prompt", "")
-        user_suggestion = data.get("user_suggestion", None)
         
         if not db_results or not isinstance(db_results, list):
             return jsonify({
@@ -657,8 +485,7 @@ def analyze_charts():
             }), 400
         
         # Analyze data and get chart configurations
-        chart_data = analyze_data_for_charts(db_results, user_prompt, user_suggestion)
-        print(chart_data)
+        chart_data = analyze_data_for_charts(db_results, user_prompt)
         
         if not chart_data:
             return jsonify({

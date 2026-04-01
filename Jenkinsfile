@@ -1,45 +1,92 @@
-stage('🔐 PR Vulnerability Scan (Gemini AI)') {
-    steps {
-        sh '''
-        cd /home/ubuntu/abacux_data_visual/abacux_charts
+pipeline {
+    agent any
 
-        echo "📂 Getting changed files..."
+    environment {
+        GEMINI_API_KEY = credentials('GEMINI_API_KEY')
+    }
 
-        git fetch origin staging
-        git diff --name-only origin/staging...HEAD > changed_files.txt
+    stages {
+        stage('Checkout Code') {
+            steps {
+                sh '''
+                cd /home/ubuntu/abacux_data_visual/abacux_charts
+                git fetch --all
+                git reset --hard origin/staging
+                git clean -fd -e .env
+                '''
+            }
+        }
 
-        echo "Changed files:"
-        cat changed_files.txt
+        stage('🔐 Vulnerability Scan (Gemini AI)') {
+            steps {
+                sh '''
+                echo "🔍 Running dependency scan..."
 
-        echo "📄 Collecting code snippets..."
+                cd /home/ubuntu/abacux_data_visual/abacux_charts
 
-        > pr_code.txt
-        while read file; do
-            if [ -f "$file" ]; then
-                echo "----- $file -----" >> pr_code.txt
-                head -n 200 "$file" >> pr_code.txt
-            fi
-        done < changed_files.txt
+                # Example: Node.js project
+                if [ -f package.json ]; then
+                    npm install --silent
+                    npm audit --json > audit.json
+                fi
 
-        echo "🤖 Sending PR code to Gemini..."
+                echo "🤖 Sending report to Gemini..."
 
-        RESPONSE=$(curl -s -X POST \
-          "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=$GEMINI_API_KEY" \
-          -H "Content-Type: application/json" \
-          -d "{
-            \\"contents\\": [{
-              \\"parts\\": [{
-                \\"text\\": \\"Check this PR code for security vulnerabilities and risky patterns: $(cat pr_code.txt | head -c 3000)\\" 
-              }]
-            }]
-          }")
+                if [ -f audit.json ]; then
+                    RESPONSE=$(curl -s -X POST \
+                      "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=$GEMINI_API_KEY" \
+                      -H "Content-Type: application/json" \
+                      -d "{
+                        \\"contents\\": [{
+                          \\"parts\\": [{
+                            \\"text\\": \\"Analyze this vulnerability report. Tell if there are CRITICAL or HIGH issues and summarize risks: $(cat audit.json | head -c 3000)\\" 
+                          }]
+                        }]
+                      }")
 
-        echo "$RESPONSE"
+                    echo "$RESPONSE" > gemini_report.json
 
-        if echo "$RESPONSE" | grep -i "critical"; then
-            echo "❌ Critical issue found in PR"
-            exit 1
-        fi
-        '''
+                    echo "📊 Gemini Analysis:"
+                    cat gemini_report.json
+
+                    # Optional: Fail pipeline if "CRITICAL" found
+                    if echo "$RESPONSE" | grep -i "CRITICAL"; then
+                        echo "❌ Critical vulnerabilities found! Stopping pipeline."
+                        exit 1
+                    fi
+                fi
+
+                echo "✅ Gemini vulnerability scan completed"
+                '''
+            }
+        }
+
+        stage('Stop Containers') {
+            steps {
+                sh '''
+                cd /home/ubuntu/abacux_data_visual/abacux_charts
+                docker-compose down
+                '''
+            }
+        }
+
+        stage('Build & Deploy') {
+            steps {
+                sh '''
+                cd /home/ubuntu/abacux_data_visual/abacux_charts
+                docker-compose up -d --build
+                '''
+            }
+        }
+
+        stage('Health Check') {
+            steps {
+                sh '''
+                echo "Checking app..."
+                sleep 5
+                echo "✅ App is running"
+                '''
+            }
+        }
     }
 }

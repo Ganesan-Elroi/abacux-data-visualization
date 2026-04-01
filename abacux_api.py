@@ -699,6 +699,12 @@ def health_check():
 def demo_ui():
     return render_template("demo_frontend.html")
 
+@app.route("/voice-notes", methods=["GET"])
+def voicenotes():
+    return render_template("voice_notes.html")
+
+
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5012, debug=True)

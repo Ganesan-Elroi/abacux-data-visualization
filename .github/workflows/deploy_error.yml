@@ -3,7 +3,7 @@ name: Deploy to EC2
 on:
   push:
     branches:
-      - main _backup # This will trigger the workflow on pushes to the main branch
+      - main_error  # This will trigger the workflow on pushes to the main branch
 
 jobs:
   build:
@@ -62,8 +62,32 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
+            # cd /home/ubuntu/abacux_data_visual/abacux_charts || exit
+            # git fetch
+            # git pull origin main || echo "Git pull failed"
+            # docker-compose -f docker-compose.yml down
+            # docker-compose -f docker-compose.yml up --build -d
+
+            set -e
+
+            echo "🚀 Starting deployment..."
+
             cd /home/ubuntu/abacux_data_visual/abacux_charts || exit
+
+            echo "📥 Pulling latest code..."
             git fetch
             git pull origin main || echo "Git pull failed"
+
+            echo "🛑 Stopping existing containers..."
             docker-compose -f docker-compose.yml down
+
+            echo "🧹 Cleaning unused Docker resources..."
+            docker system prune -f
+
+            echo "🏗️ Building and starting containers..."
             docker-compose -f docker-compose.yml up --build -d
+
+            echo "📊 Checking running containers..."
+            docker ps
+
+            echo "✅ Deployment completed successfully"
